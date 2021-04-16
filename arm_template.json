@@ -1,0 +1,1369 @@
+{
+    "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "factoryName": {
+            "type": "string",
+            "metadata": "Data Factory name",
+            "defaultValue": "PauseAndResumeImported"
+        },
+        "AzureBlobStorage1_connectionString": {
+            "type": "secureString",
+            "metadata": "Secure string for 'connectionString' of 'AzureBlobStorage1'"
+        },
+        "linkedserviceforimported_connectionString": {
+            "type": "secureString",
+            "metadata": "Secure string for 'connectionString' of 'linkedserviceforimported'"
+        }
+    },
+    "variables": {
+        "factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factoryName'))]"
+    },
+    "resources": [
+        {
+            "name": "[concat(parameters('factoryName'), '/AzureBlobStorage1')]",
+            "type": "Microsoft.DataFactory/factories/linkedServices",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "annotations": [],
+                "type": "AzureBlobStorage",
+                "typeProperties": {
+                    "connectionString": "[parameters('AzureBlobStorage1_connectionString')]"
+                }
+            },
+            "dependsOn": []
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/linkedserviceforimported')]",
+            "type": "Microsoft.DataFactory/factories/linkedServices",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "annotations": [],
+                "type": "AzureSqlDW",
+                "typeProperties": {
+                    "connectionString": "[parameters('linkedserviceforimported_connectionString')]"
+                }
+            },
+            "dependsOn": []
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ReadConfigFileIntelligentPauseResume')]",
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "linkedServiceName": {
+                    "referenceName": "AzureBlobStorage1",
+                    "type": "LinkedServiceReference"
+                },
+                "annotations": [],
+                "type": "Json",
+                "typeProperties": {
+                    "location": {
+                        "type": "AzureBlobStorageLocation",
+                        "container": "config-intelligentpauseresumedw"
+                    }
+                },
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "dev": {
+                            "type": "object",
+                            "properties": {
+                                "subscriptionid": {
+                                    "type": "string"
+                                },
+                                "servername": {
+                                    "type": "string"
+                                },
+                                "databasename": {
+                                    "type": "string"
+                                },
+                                "resourcegroupname": {
+                                    "type": "string"
+                                },
+                                "waittime": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/linkedServices/AzureBlobStorage1')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/AzureSynapseAnalyticsTable1')]",
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "linkedServiceName": {
+                    "referenceName": "linkedserviceforimported",
+                    "type": "LinkedServiceReference"
+                },
+                "annotations": [],
+                "type": "AzureSqlDWTable",
+                "schema": [],
+                "typeProperties": {}
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/linkedServices/linkedserviceforimported')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ReadConfig')]",
+            "type": "Microsoft.DataFactory/factories/pipelines",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "activities": [
+                    {
+                        "name": "ReadConfigFile",
+                        "type": "Lookup",
+                        "dependsOn": [],
+                        "policy": {
+                            "timeout": "7.00:00:00",
+                            "retry": 0,
+                            "retryIntervalInSeconds": 30,
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "source": {
+                                "type": "JsonSource",
+                                "storeSettings": {
+                                    "type": "AzureBlobStorageReadSettings",
+                                    "recursive": false,
+                                    "wildcardFileName": "config_pauseresumedw.json",
+                                    "enablePartitionDiscovery": false
+                                },
+                                "formatSettings": {
+                                    "type": "JsonReadSettings"
+                                }
+                            },
+                            "dataset": {
+                                "referenceName": "ReadConfigFileIntelligentPauseResume",
+                                "type": "DatasetReference",
+                                "parameters": {}
+                            }
+                        }
+                    },
+                    {
+                        "name": "Set subscriptionid",
+                        "type": "SetVariable",
+                        "dependsOn": [
+                            {
+                                "activity": "ReadConfigFile",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "userProperties": [],
+                        "typeProperties": {
+                            "variableName": "subscriptionid",
+                            "value": {
+                                "value": "@activity('ReadConfigFile').output.firstRow[pipeline().parameters.env].subscriptionid",
+                                "type": "Expression"
+                            }
+                        }
+                    },
+                    {
+                        "name": "Set databasename",
+                        "type": "SetVariable",
+                        "dependsOn": [
+                            {
+                                "activity": "Set subscriptionid",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "userProperties": [],
+                        "typeProperties": {
+                            "variableName": "databasename",
+                            "value": {
+                                "value": "@activity('ReadConfigFile').output.firstRow[pipeline().parameters.env].databasename",
+                                "type": "Expression"
+                            }
+                        }
+                    },
+                    {
+                        "name": "Set resourcegroupname",
+                        "type": "SetVariable",
+                        "dependsOn": [
+                            {
+                                "activity": "Set databasename",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "userProperties": [],
+                        "typeProperties": {
+                            "variableName": "resourcegroupname",
+                            "value": {
+                                "value": "@activity('ReadConfigFile').output.firstRow[pipeline().parameters.env].resourcegroupname",
+                                "type": "Expression"
+                            }
+                        }
+                    },
+                    {
+                        "name": "Set servername",
+                        "type": "SetVariable",
+                        "dependsOn": [
+                            {
+                                "activity": "Set resourcegroupname",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "userProperties": [],
+                        "typeProperties": {
+                            "variableName": "servername",
+                            "value": {
+                                "value": "@activity('ReadConfigFile').output.firstRow[pipeline().parameters.env].servername",
+                                "type": "Expression"
+                            }
+                        }
+                    },
+                    {
+                        "name": "Set waittime",
+                        "type": "SetVariable",
+                        "dependsOn": [
+                            {
+                                "activity": "Set servername",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "userProperties": [],
+                        "typeProperties": {
+                            "variableName": "waittime",
+                            "value": {
+                                "value": "@activity('ReadConfigFile').output.firstRow[pipeline().parameters.env].pausewaittime",
+                                "type": "Expression"
+                            }
+                        }
+                    },
+                    {
+                        "name": "Execute InitPause",
+                        "type": "ExecutePipeline",
+                        "dependsOn": [
+                            {
+                                "activity": "Set waittime",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "userProperties": [],
+                        "typeProperties": {
+                            "pipeline": {
+                                "referenceName": "InitPause",
+                                "type": "PipelineReference"
+                            },
+                            "waitOnCompletion": true,
+                            "parameters": {
+                                "subscriptionid": {
+                                    "value": "@variables('subscriptionid')",
+                                    "type": "Expression"
+                                },
+                                "servername": {
+                                    "value": "@variables('servername')",
+                                    "type": "Expression"
+                                },
+                                "databasename": {
+                                    "value": "@variables('databasename')",
+                                    "type": "Expression"
+                                },
+                                "resourcegroupname": {
+                                    "value": "@variables('resourcegroupname')",
+                                    "type": "Expression"
+                                },
+                                "waittime": {
+                                    "value": "@int(variables('waittime'))",
+                                    "type": "Expression"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "parameters": {
+                    "env": {
+                        "type": "string",
+                        "defaultValue": "dev"
+                    }
+                },
+                "variables": {
+                    "subscriptionid": {
+                        "type": "String"
+                    },
+                    "databasename": {
+                        "type": "String",
+                        "defaultValue": "'"
+                    },
+                    "servername": {
+                        "type": "String"
+                    },
+                    "waittime": {
+                        "type": "String"
+                    },
+                    "resourcegroupname": {
+                        "type": "String"
+                    }
+                },
+                "annotations": [],
+                "lastPublishTime": "2021-03-12T05:46:01Z"
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/datasets/ReadConfigFileIntelligentPauseResume')]",
+                "[concat(variables('factoryId'), '/pipelines/InitPause')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/InitPause')]",
+            "type": "Microsoft.DataFactory/factories/pipelines",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "activities": [
+                    {
+                        "name": "DWStatus",
+                        "type": "WebActivity",
+                        "dependsOn": [],
+                        "policy": {
+                            "timeout": "7.00:00:00",
+                            "retry": 0,
+                            "retryIntervalInSeconds": 30,
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "url": {
+                                "value": "@concat('https://management.azure.com/subscriptions/',pipeline().parameters.subscriptionid,'/resourceGroups/',pipeline().parameters.resourcegroupname,'/providers/Microsoft.Sql/servers/',pipeline().parameters.servername,'/databases/',pipeline().parameters.databasename,'/?api-version=2019-06-01-preview')",
+                                "type": "Expression"
+                            },
+                            "method": "GET",
+                            "headers": {},
+                            "authentication": {
+                                "type": "MSI",
+                                "resource": "https://management.azure.com"
+                            }
+                        }
+                    },
+                    {
+                        "name": "If Condition1",
+                        "type": "IfCondition",
+                        "dependsOn": [
+                            {
+                                "activity": "DWStatus",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "userProperties": [],
+                        "typeProperties": {
+                            "expression": {
+                                "value": "@equals(activity('DWStatus').output.properties.status,'Online')",
+                                "type": "Expression"
+                            },
+                            "ifTrueActivities": [
+                                {
+                                    "name": "CountActiveQuery",
+                                    "type": "Lookup",
+                                    "dependsOn": [
+                                        {
+                                            "activity": "Set variable1",
+                                            "dependencyConditions": [
+                                                "Succeeded"
+                                            ]
+                                        }
+                                    ],
+                                    "policy": {
+                                        "timeout": "7.00:00:00",
+                                        "retry": 0,
+                                        "retryIntervalInSeconds": 30,
+                                        "secureOutput": false,
+                                        "secureInput": false
+                                    },
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "source": {
+                                            "type": "SqlDWSource",
+                                            "sqlReaderQuery": {
+                                                "value": "select count(1) as ActiveQueries, session_id() as session_val,getdate() as currentdate from (\nSELECT *\nFROM sys.dm_pdw_exec_requests\nWHERE status ='Running'\n  AND session_id <> session_id()\n ) t;",
+                                                "type": "Expression"
+                                            },
+                                            "queryTimeout": "02:00:00",
+                                            "partitionOption": "None"
+                                        },
+                                        "dataset": {
+                                            "referenceName": "AzureSynapseAnalyticsTable1",
+                                            "type": "DatasetReference",
+                                            "parameters": {}
+                                        }
+                                    }
+                                },
+                                {
+                                    "name": "CheckActiveQueries",
+                                    "type": "ExecutePipeline",
+                                    "dependsOn": [
+                                        {
+                                            "activity": "CountActiveQuery",
+                                            "dependencyConditions": [
+                                                "Succeeded"
+                                            ]
+                                        }
+                                    ],
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "pipeline": {
+                                            "referenceName": "CheckActiveQueries",
+                                            "type": "PipelineReference"
+                                        },
+                                        "waitOnCompletion": true,
+                                        "parameters": {
+                                            "activequeriescount": {
+                                                "value": "@int(activity('CountActiveQuery').output.firstRow.ActiveQueries)",
+                                                "type": "Expression"
+                                            },
+                                            "waittime": {
+                                                "value": "@pipeline().parameters.waittime",
+                                                "type": "Expression"
+                                            },
+                                            "subscriptionid": {
+                                                "value": "@pipeline().parameters.subscriptionid",
+                                                "type": "Expression"
+                                            },
+                                            "servername": {
+                                                "value": "@pipeline().parameters.servername",
+                                                "type": "Expression"
+                                            },
+                                            "databasename": {
+                                                "value": "@pipeline().parameters.databasename",
+                                                "type": "Expression"
+                                            },
+                                            "resourcegroupname": {
+                                                "value": "@pipeline().parameters.resourcegroupname",
+                                                "type": "Expression"
+                                            },
+                                            "activequerytime": {
+                                                "value": "@activity('CountActiveQuery').output.firstRow.currentdate",
+                                                "type": "Expression"
+                                            },
+                                            "singlequote": "'",
+                                            "sessionVal": {
+                                                "value": "@activity('CountActiveQuery').output.firstRow.session_val",
+                                                "type": "Expression"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "name": "Set variable1",
+                                    "type": "SetVariable",
+                                    "dependsOn": [],
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "variableName": "VarActiveQueryTime",
+                                        "value": {
+                                            "value": "@utcnow()",
+                                            "type": "Expression"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "parameters": {
+                    "subscriptionid": {
+                        "type": "string"
+                    },
+                    "servername": {
+                        "type": "string"
+                    },
+                    "databasename": {
+                        "type": "string"
+                    },
+                    "resourcegroupname": {
+                        "type": "string"
+                    },
+                    "waittime": {
+                        "type": "int"
+                    }
+                },
+                "variables": {
+                    "VarActiveQueryTime": {
+                        "type": "String"
+                    }
+                },
+                "annotations": [],
+                "lastPublishTime": "2021-04-06T11:21:24Z"
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/datasets/AzureSynapseAnalyticsTable1')]",
+                "[concat(variables('factoryId'), '/pipelines/CheckActiveQueries')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/CheckActiveQueries')]",
+            "type": "Microsoft.DataFactory/factories/pipelines",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "activities": [
+                    {
+                        "name": "If Condition1",
+                        "type": "IfCondition",
+                        "dependsOn": [
+                            {
+                                "activity": "Set variable1",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "userProperties": [],
+                        "typeProperties": {
+                            "expression": {
+                                "value": "@equals(pipeline().parameters.activequeriescount,0)",
+                                "type": "Expression"
+                            },
+                            "ifFalseActivities": [
+                                {
+                                    "name": "Wait2",
+                                    "type": "Wait",
+                                    "dependsOn": [],
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "waitTimeInSeconds": {
+                                            "value": "@pipeline().parameters.waittime",
+                                            "type": "Expression"
+                                        }
+                                    }
+                                },
+                                {
+                                    "name": "CountActiveQueriesAgain",
+                                    "type": "Lookup",
+                                    "dependsOn": [
+                                        {
+                                            "activity": "Set variable2",
+                                            "dependencyConditions": [
+                                                "Succeeded"
+                                            ]
+                                        }
+                                    ],
+                                    "policy": {
+                                        "timeout": "7.00:00:00",
+                                        "retry": 0,
+                                        "retryIntervalInSeconds": 30,
+                                        "secureOutput": false,
+                                        "secureInput": false
+                                    },
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "source": {
+                                            "type": "SqlDWSource",
+                                            "sqlReaderQuery": {
+                                                "value": "@concat('select count(1) as ActiveQueries from (\nSELECT *\nFROM sys.dm_pdw_exec_requests\nWHERE start_time>',pipeline().parameters.singlequote, variables('varActiveQuery'),pipeline().parameters.singlequote,\n ' AND session_id <> session_id() and command not in (',pipeline().parameters.singlequote,'USE [eureka-wh]',pipeline().parameters.singlequote,',',pipeline().parameters.singlequote,'USE [DWShellDb]',pipeline().parameters.singlequote,') and session_id <> ',pipeline().parameters.singlequote,pipeline().parameters.sessionVal,pipeline().parameters.singlequote,'\n ) t;')",
+                                                "type": "Expression"
+                                            },
+                                            "queryTimeout": "02:00:00",
+                                            "partitionOption": "None"
+                                        },
+                                        "dataset": {
+                                            "referenceName": "AzureSynapseAnalyticsTable1",
+                                            "type": "DatasetReference",
+                                            "parameters": {}
+                                        }
+                                    }
+                                },
+                                {
+                                    "name": "ReCheckActiveQueries",
+                                    "type": "ExecutePipeline",
+                                    "dependsOn": [
+                                        {
+                                            "activity": "CountActiveQueriesAgain",
+                                            "dependencyConditions": [
+                                                "Succeeded"
+                                            ]
+                                        }
+                                    ],
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "pipeline": {
+                                            "referenceName": "ReCheckActiveQueries",
+                                            "type": "PipelineReference"
+                                        },
+                                        "waitOnCompletion": true,
+                                        "parameters": {
+                                            "activequeriescount": {
+                                                "value": "@int(activity('CountActiveQueriesAgain').output.firstRow.ActiveQueries)",
+                                                "type": "Expression"
+                                            },
+                                            "waittime": {
+                                                "value": "@pipeline().parameters.waittime",
+                                                "type": "Expression"
+                                            },
+                                            "subscriptionid": {
+                                                "value": "@pipeline().parameters.subscriptionid",
+                                                "type": "Expression"
+                                            },
+                                            "servername": {
+                                                "value": "@pipeline().parameters.servername",
+                                                "type": "Expression"
+                                            },
+                                            "databasename": {
+                                                "value": "@pipeline().parameters.databasename",
+                                                "type": "Expression"
+                                            },
+                                            "resourcegroupname": {
+                                                "value": "@pipeline().parameters.resourcegroupname",
+                                                "type": "Expression"
+                                            },
+                                            "singlequote": "'",
+                                            "activequerytime": {
+                                                "value": "@variables('VarActiveQuery')",
+                                                "type": "Expression"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "name": "Set variable2",
+                                    "type": "SetVariable",
+                                    "dependsOn": [
+                                        {
+                                            "activity": "Wait2",
+                                            "dependencyConditions": [
+                                                "Succeeded"
+                                            ]
+                                        }
+                                    ],
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "variableName": "VarActiveQuery_New",
+                                        "value": {
+                                            "value": "@utcnow()",
+                                            "type": "Expression"
+                                        }
+                                    }
+                                }
+                            ],
+                            "ifTrueActivities": [
+                                {
+                                    "name": "Wait1",
+                                    "type": "Wait",
+                                    "dependsOn": [],
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "waitTimeInSeconds": {
+                                            "value": "@pipeline().parameters.waittime",
+                                            "type": "Expression"
+                                        }
+                                    }
+                                },
+                                {
+                                    "name": "ReCountActiveQueries",
+                                    "type": "Lookup",
+                                    "dependsOn": [
+                                        {
+                                            "activity": "Wait1",
+                                            "dependencyConditions": [
+                                                "Succeeded"
+                                            ]
+                                        }
+                                    ],
+                                    "policy": {
+                                        "timeout": "7.00:00:00",
+                                        "retry": 0,
+                                        "retryIntervalInSeconds": 30,
+                                        "secureOutput": false,
+                                        "secureInput": false
+                                    },
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "source": {
+                                            "type": "SqlDWSource",
+                                            "sqlReaderQuery": {
+                                                "value": "@concat('select count(1) as ActiveQueries from (\nSELECT *\nFROM sys.dm_pdw_exec_requests\nWHERE start_time>',pipeline().parameters.singlequote, variables('varActiveQuery'),pipeline().parameters.singlequote,\n ' AND session_id <> session_id() and command not in (',pipeline().parameters.singlequote,'USE [eureka-wh]',pipeline().parameters.singlequote,',',pipeline().parameters.singlequote,'USE [DWShellDb]',pipeline().parameters.singlequote,') and session_id <> ',pipeline().parameters.singlequote,pipeline().parameters.sessionVal,pipeline().parameters.singlequote,'\n ) t;')",
+                                                "type": "Expression"
+                                            },
+                                            "queryTimeout": "02:00:00",
+                                            "partitionOption": "None"
+                                        },
+                                        "dataset": {
+                                            "referenceName": "AzureSynapseAnalyticsTable1",
+                                            "type": "DatasetReference",
+                                            "parameters": {}
+                                        }
+                                    }
+                                },
+                                {
+                                    "name": "PauseDW",
+                                    "type": "ExecutePipeline",
+                                    "dependsOn": [
+                                        {
+                                            "activity": "ReCountActiveQueries",
+                                            "dependencyConditions": [
+                                                "Succeeded"
+                                            ]
+                                        }
+                                    ],
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "pipeline": {
+                                            "referenceName": "PauseDW",
+                                            "type": "PipelineReference"
+                                        },
+                                        "waitOnCompletion": true,
+                                        "parameters": {
+                                            "activequeriescount": {
+                                                "value": "@int(activity('ReCountActiveQueries').output.firstRow.ActiveQueries)",
+                                                "type": "Expression"
+                                            },
+                                            "subscriptionid": {
+                                                "value": "@pipeline().parameters.subscriptionid",
+                                                "type": "Expression"
+                                            },
+                                            "databasename": {
+                                                "value": "@pipeline().parameters.databasename",
+                                                "type": "Expression"
+                                            },
+                                            "servername": {
+                                                "value": "@pipeline().parameters.servername",
+                                                "type": "Expression"
+                                            },
+                                            "resourcegroupname": {
+                                                "value": "@pipeline().parameters.resourcegroupname",
+                                                "type": "Expression"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "name": "Set variable1",
+                        "type": "SetVariable",
+                        "dependsOn": [],
+                        "userProperties": [],
+                        "typeProperties": {
+                            "variableName": "VarActiveQuery",
+                            "value": {
+                                "value": "@pipeline().parameters.activequerytime",
+                                "type": "Expression"
+                            }
+                        }
+                    }
+                ],
+                "parameters": {
+                    "activequeriescount": {
+                        "type": "int"
+                    },
+                    "waittime": {
+                        "type": "int"
+                    },
+                    "subscriptionid": {
+                        "type": "string"
+                    },
+                    "servername": {
+                        "type": "string"
+                    },
+                    "databasename": {
+                        "type": "string"
+                    },
+                    "resourcegroupname": {
+                        "type": "string"
+                    },
+                    "activequerytime": {
+                        "type": "string"
+                    },
+                    "singlequote": {
+                        "type": "string",
+                        "defaultValue": "'"
+                    },
+                    "sessionVal": {
+                        "type": "string"
+                    }
+                },
+                "variables": {
+                    "VarActiveQuery": {
+                        "type": "String"
+                    },
+                    "VarActiveQuery_New": {
+                        "type": "String"
+                    }
+                },
+                "annotations": [],
+                "lastPublishTime": "2021-04-06T11:25:33Z"
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/datasets/AzureSynapseAnalyticsTable1')]",
+                "[concat(variables('factoryId'), '/pipelines/ReCheckActiveQueries')]",
+                "[concat(variables('factoryId'), '/pipelines/PauseDW')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ReCheckActiveQueries')]",
+            "type": "Microsoft.DataFactory/factories/pipelines",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "activities": [
+                    {
+                        "name": "If Condition1",
+                        "type": "IfCondition",
+                        "dependsOn": [
+                            {
+                                "activity": "Set variable1",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "userProperties": [],
+                        "typeProperties": {
+                            "expression": {
+                                "value": "@equals(pipeline().parameters.activequeriescount,0)",
+                                "type": "Expression"
+                            },
+                            "ifTrueActivities": [
+                                {
+                                    "name": "Wait1",
+                                    "type": "Wait",
+                                    "dependsOn": [],
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "waitTimeInSeconds": {
+                                            "value": "@pipeline().parameters.waittime",
+                                            "type": "Expression"
+                                        }
+                                    }
+                                },
+                                {
+                                    "name": "CountActiveQueries",
+                                    "type": "Lookup",
+                                    "dependsOn": [
+                                        {
+                                            "activity": "Wait1",
+                                            "dependencyConditions": [
+                                                "Succeeded"
+                                            ]
+                                        }
+                                    ],
+                                    "policy": {
+                                        "timeout": "7.00:00:00",
+                                        "retry": 0,
+                                        "retryIntervalInSeconds": 30,
+                                        "secureOutput": false,
+                                        "secureInput": false
+                                    },
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "source": {
+                                            "type": "SqlDWSource",
+                                            "sqlReaderQuery": {
+                                                "value": "@concat('select count(1) as ActiveQueries from (\nSELECT *\nFROM sys.dm_pdw_exec_requests\nWHERE start_time>',pipeline().parameters.singlequote, variables('varActiveQuery'),pipeline().parameters.singlequote,\n ' AND session_id <> session_id() and command not in (',pipeline().parameters.singlequote,'USE [eureka-wh]',pipeline().parameters.singlequote,')\n ) t;')",
+                                                "type": "Expression"
+                                            },
+                                            "queryTimeout": "02:00:00",
+                                            "partitionOption": "None"
+                                        },
+                                        "dataset": {
+                                            "referenceName": "AzureSynapseAnalyticsTable1",
+                                            "type": "DatasetReference",
+                                            "parameters": {}
+                                        }
+                                    }
+                                },
+                                {
+                                    "name": "PauseDW",
+                                    "type": "ExecutePipeline",
+                                    "dependsOn": [
+                                        {
+                                            "activity": "CountActiveQueries",
+                                            "dependencyConditions": [
+                                                "Succeeded"
+                                            ]
+                                        }
+                                    ],
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "pipeline": {
+                                            "referenceName": "PauseDW",
+                                            "type": "PipelineReference"
+                                        },
+                                        "waitOnCompletion": true,
+                                        "parameters": {
+                                            "activequeriescount": {
+                                                "value": "@int(activity('CountActiveQueries').output.firstRow.ActiveQueries)",
+                                                "type": "Expression"
+                                            },
+                                            "subscriptionid": {
+                                                "value": "@pipeline().parameters.subscriptionid",
+                                                "type": "Expression"
+                                            },
+                                            "databasename": {
+                                                "value": "@pipeline().parameters.databasename",
+                                                "type": "Expression"
+                                            },
+                                            "servername": {
+                                                "value": "@pipeline().parameters.servername",
+                                                "type": "Expression"
+                                            },
+                                            "resourcegroupname": {
+                                                "value": "@pipeline().parameters.resourcegroupname",
+                                                "type": "Expression"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "name": "Set variable1",
+                        "type": "SetVariable",
+                        "dependsOn": [],
+                        "userProperties": [],
+                        "typeProperties": {
+                            "variableName": "VarActiveQuery",
+                            "value": {
+                                "value": "@pipeline().parameters.activequerytime",
+                                "type": "Expression"
+                            }
+                        }
+                    }
+                ],
+                "parameters": {
+                    "activequeriescount": {
+                        "type": "int"
+                    },
+                    "waittime": {
+                        "type": "int"
+                    },
+                    "subscriptionid": {
+                        "type": "string"
+                    },
+                    "servername": {
+                        "type": "string"
+                    },
+                    "databasename": {
+                        "type": "string"
+                    },
+                    "resourcegroupname": {
+                        "type": "string"
+                    },
+                    "singlequote": {
+                        "type": "string",
+                        "defaultValue": "'"
+                    },
+                    "activequerytime": {
+                        "type": "string"
+                    }
+                },
+                "variables": {
+                    "VarActiveQuery": {
+                        "type": "String"
+                    }
+                },
+                "annotations": [],
+                "lastPublishTime": "2021-04-06T12:02:06Z"
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/datasets/AzureSynapseAnalyticsTable1')]",
+                "[concat(variables('factoryId'), '/pipelines/PauseDW')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/PauseDW')]",
+            "type": "Microsoft.DataFactory/factories/pipelines",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "activities": [
+                    {
+                        "name": "If Condition1",
+                        "type": "IfCondition",
+                        "dependsOn": [],
+                        "userProperties": [],
+                        "typeProperties": {
+                            "expression": {
+                                "value": "@equals(pipeline().parameters.activequeriescount,0)",
+                                "type": "Expression"
+                            },
+                            "ifTrueActivities": [
+                                {
+                                    "name": "PauseDW",
+                                    "type": "WebActivity",
+                                    "dependsOn": [],
+                                    "policy": {
+                                        "timeout": "7.00:00:00",
+                                        "retry": 0,
+                                        "retryIntervalInSeconds": 30,
+                                        "secureOutput": false,
+                                        "secureInput": false
+                                    },
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "url": {
+                                            "value": "@concat('https://management.azure.com/subscriptions/',pipeline().parameters.subscriptionid,'/resourceGroups/',pipeline().parameters.resourcegroupname,'/providers/Microsoft.Sql/servers/',pipeline().parameters.servername,'/databases/',pipeline().parameters.databasename,'/pause?api-version=2019-06-01-preview')",
+                                            "type": "Expression"
+                                        },
+                                        "method": "POST",
+                                        "headers": {},
+                                        "body": {},
+                                        "authentication": {
+                                            "type": "MSI",
+                                            "resource": "https://management.azure.com"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "parameters": {
+                    "activequeriescount": {
+                        "type": "int"
+                    },
+                    "subscriptionid": {
+                        "type": "string"
+                    },
+                    "databasename": {
+                        "type": "string"
+                    },
+                    "servername": {
+                        "type": "string"
+                    },
+                    "resourcegroupname": {
+                        "type": "string"
+                    }
+                },
+                "annotations": [],
+                "lastPublishTime": "2021-03-12T05:45:59Z"
+            },
+            "dependsOn": []
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/CheckDWStatus')]",
+            "type": "Microsoft.DataFactory/factories/pipelines",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "activities": [
+                    {
+                        "name": "ForEach1",
+                        "type": "ForEach",
+                        "dependsOn": [],
+                        "userProperties": [],
+                        "typeProperties": {
+                            "items": {
+                                "value": "@pipeline().parameters.ForEachArray",
+                                "type": "Expression"
+                            },
+                            "isSequential": true,
+                            "activities": [
+                                {
+                                    "name": "Wait1",
+                                    "type": "Wait",
+                                    "dependsOn": [],
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "waitTimeInSeconds": {
+                                            "value": "@pipeline().parameters.waittime",
+                                            "type": "Expression"
+                                        }
+                                    }
+                                },
+                                {
+                                    "name": "CheckStatusFor2Iterations",
+                                    "type": "WebActivity",
+                                    "dependsOn": [
+                                        {
+                                            "activity": "Wait1",
+                                            "dependencyConditions": [
+                                                "Succeeded"
+                                            ]
+                                        }
+                                    ],
+                                    "policy": {
+                                        "timeout": "7.00:00:00",
+                                        "retry": 0,
+                                        "retryIntervalInSeconds": 30,
+                                        "secureOutput": false,
+                                        "secureInput": false
+                                    },
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "url": {
+                                            "value": "@concat('https://management.azure.com/subscriptions/',pipeline().parameters.subscriptionid,'/resourceGroups/',pipeline().parameters.resourcegroupname,'/providers/Microsoft.Sql/servers/',pipeline().parameters.servername,'/databases/',pipeline().parameters.databasename,'/?api-version=2019-06-01-preview')",
+                                            "type": "Expression"
+                                        },
+                                        "method": "GET",
+                                        "headers": {},
+                                        "authentication": {
+                                            "type": "MSI",
+                                            "resource": "https://management.azure.com"
+                                        }
+                                    }
+                                },
+                                {
+                                    "name": "Set variable1",
+                                    "type": "SetVariable",
+                                    "dependsOn": [
+                                        {
+                                            "activity": "CheckStatusFor2Iterations",
+                                            "dependencyConditions": [
+                                                "Succeeded"
+                                            ]
+                                        }
+                                    ],
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "variableName": "dwstatus",
+                                        "value": {
+                                            "value": "@activity('CheckStatusFor2Iterations').output.properties.status",
+                                            "type": "Expression"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "name": "If Condition1",
+                        "type": "IfCondition",
+                        "dependsOn": [
+                            {
+                                "activity": "ForEach1",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "userProperties": [],
+                        "typeProperties": {
+                            "expression": {
+                                "value": "@equals(variables('dwstatus'),'Paused')",
+                                "type": "Expression"
+                            },
+                            "ifTrueActivities": [
+                                {
+                                    "name": "MakeDWOnline",
+                                    "type": "WebActivity",
+                                    "dependsOn": [],
+                                    "policy": {
+                                        "timeout": "7.00:00:00",
+                                        "retry": 0,
+                                        "retryIntervalInSeconds": 30,
+                                        "secureOutput": false,
+                                        "secureInput": false
+                                    },
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "url": {
+                                            "value": "@concat('https://management.azure.com/subscriptions/',pipeline().parameters.subscriptionid,'/resourceGroups/',pipeline().parameters.resourcegroupname,'/providers/Microsoft.Sql/servers/',pipeline().parameters.servername,'/databases/',pipeline().parameters.databasename,'/resume?api-version=2019-06-01-preview')",
+                                            "type": "Expression"
+                                        },
+                                        "method": "POST",
+                                        "headers": {},
+                                        "body": {},
+                                        "authentication": {
+                                            "type": "MSI",
+                                            "resource": "https://management.azure.com"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "parameters": {
+                    "subscriptionid": {
+                        "type": "string"
+                    },
+                    "servername": {
+                        "type": "string"
+                    },
+                    "databasename": {
+                        "type": "string"
+                    },
+                    "resourcegroupname": {
+                        "type": "string"
+                    },
+                    "waittime": {
+                        "type": "int"
+                    },
+                    "ForEachArray": {
+                        "type": "array"
+                    }
+                },
+                "variables": {
+                    "dwstatus": {
+                        "type": "String"
+                    }
+                },
+                "annotations": [],
+                "lastPublishTime": "2021-03-25T05:46:46Z"
+            },
+            "dependsOn": []
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/InitDWResume')]",
+            "type": "Microsoft.DataFactory/factories/pipelines",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "activities": [
+                    {
+                        "name": "DWStatus",
+                        "type": "WebActivity",
+                        "dependsOn": [],
+                        "policy": {
+                            "timeout": "7.00:00:00",
+                            "retry": 0,
+                            "retryIntervalInSeconds": 30,
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "url": {
+                                "value": "@concat('https://management.azure.com/subscriptions/',pipeline().parameters.subscriptionid,'/resourceGroups/',pipeline().parameters.resourcegroupname,'/providers/Microsoft.Sql/servers/',pipeline().parameters.servername,'/databases/',pipeline().parameters.databasename,'/?api-version=2019-06-01-preview')",
+                                "type": "Expression"
+                            },
+                            "method": "GET",
+                            "headers": {},
+                            "authentication": {
+                                "type": "MSI",
+                                "resource": "https://management.azure.com"
+                            }
+                        }
+                    },
+                    {
+                        "name": "Switch1",
+                        "type": "Switch",
+                        "dependsOn": [
+                            {
+                                "activity": "DWStatus",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "userProperties": [],
+                        "typeProperties": {
+                            "on": {
+                                "value": "@activity('DWStatus').output.properties.status",
+                                "type": "Expression"
+                            },
+                            "cases": [
+                                {
+                                    "value": "Paused",
+                                    "activities": [
+                                        {
+                                            "name": "MakeDWOnline",
+                                            "type": "WebActivity",
+                                            "dependsOn": [],
+                                            "policy": {
+                                                "timeout": "7.00:00:00",
+                                                "retry": 0,
+                                                "retryIntervalInSeconds": 30,
+                                                "secureOutput": false,
+                                                "secureInput": false
+                                            },
+                                            "userProperties": [],
+                                            "typeProperties": {
+                                                "url": {
+                                                    "value": "@concat('https://management.azure.com/subscriptions/',pipeline().parameters.subscriptionid,'/resourceGroups/',pipeline().parameters.resourcegroupname,'/providers/Microsoft.Sql/servers/',pipeline().parameters.servername,'/databases/',pipeline().parameters.databasename,'/resume?api-version=2019-06-01-preview')",
+                                                    "type": "Expression"
+                                                },
+                                                "method": "POST",
+                                                "headers": {},
+                                                "body": {},
+                                                "authentication": {
+                                                    "type": "MSI",
+                                                    "resource": "https://management.azure.com"
+                                                }
+                                            }
+                                        }
+                                    ]
+                                },
+                                {
+                                    "value": "Pausing",
+                                    "activities": [
+                                        {
+                                            "name": "CheckDWStatus",
+                                            "type": "ExecutePipeline",
+                                            "dependsOn": [],
+                                            "userProperties": [],
+                                            "typeProperties": {
+                                                "pipeline": {
+                                                    "referenceName": "CheckDWStatus",
+                                                    "type": "PipelineReference"
+                                                },
+                                                "waitOnCompletion": true,
+                                                "parameters": {
+                                                    "subscriptionid": {
+                                                        "value": "@pipeline().parameters.subscriptionid",
+                                                        "type": "Expression"
+                                                    },
+                                                    "servername": {
+                                                        "value": "@pipeline().parameters.servername",
+                                                        "type": "Expression"
+                                                    },
+                                                    "databasename": {
+                                                        "value": "@pipeline().parameters.databasename",
+                                                        "type": "Expression"
+                                                    },
+                                                    "resourcegroupname": {
+                                                        "value": "@pipeline().parameters.resourcegroupname",
+                                                        "type": "Expression"
+                                                    },
+                                                    "waittime": {
+                                                        "value": "@pipeline().parameters.waittime",
+                                                        "type": "Expression"
+                                                    },
+                                                    "ForEachArray": {
+                                                        "value": "@split('1;2',';')",
+                                                        "type": "Expression"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "parameters": {
+                    "subscriptionid": {
+                        "type": "string"
+                    },
+                    "servername": {
+                        "type": "string"
+                    },
+                    "databasename": {
+                        "type": "string"
+                    },
+                    "resourcegroupname": {
+                        "type": "string"
+                    },
+                    "waittime": {
+                        "type": "int"
+                    }
+                },
+                "annotations": [],
+                "lastPublishTime": "2021-03-25T05:46:46Z"
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/pipelines/CheckDWStatus')]"
+            ]
+        }
+    ]
+}
